@@ -107,9 +107,6 @@ inline void matrixToBytes(const Matrix& m, uint8_t* out)
 
 void cayleyHash(const uint8_t* data, size_t len, uint8_t* out)
 {
-    Matrix A = { 1, 2, 0, 1 };
-    Matrix B = { 1, 0, 2, 1 };
-    Matrix C = { 2, 1, 1, 1 };
 
     Matrix H = { 1, 0, 0, 1 };
 

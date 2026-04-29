@@ -8,9 +8,6 @@
 #include "blake3.h"
 #include "cayleyhash.h"
 
-using namespace std;
-
-
 // Cayley hash:
 void cayley_hash(const uint8_t* data, size_t len, uint8_t* out) {
     cayleyHash(data, len, out);
@@ -94,7 +91,7 @@ int main()
     for (size_t size : sizes) {
         vector<uint8_t> data(size, 0);
 
-        cout << "\nInput size: " << size << " bytes\n";
+        cout << "\nInput size: " << size << " bytes" << " (" << choose_iterations(size) << " iterations)\n";
 
         benchmark("SHA-256", sha256_hash, data, choose_iterations(size));
         benchmark("SHA-3", sha3_hash, data, choose_iterations(size));
