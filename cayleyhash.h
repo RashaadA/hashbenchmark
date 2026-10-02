@@ -1,7 +1,13 @@
-#include <string>
-#include <iostream>
+#ifndef CAYLEYHASH_H
+#define CAYLEYHASH_H
 
-using namespace std;
+#include <cstddef>
+#include <cstdint>
 
-string hashString(const string& input);
-void cayleyHash(const uint8_t* data, size_t len, uint8_t* out);
+void cayleyHash(
+    const uint8_t* data,
+    size_t len,
+    uint8_t* out
+);
+
+#endif
