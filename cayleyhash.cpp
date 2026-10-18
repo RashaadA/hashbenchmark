@@ -1,13 +1,61 @@
 #include <cstdint>
+#include <cayleyhash.h>
 #include <cstddef>
 #include <boost/multiprecision/cpp_int.hpp>
+#include <openssl/bn.h>
 
 #include <array>
+#include <stdexcept>
 
 using u128 = boost::multiprecision::uint128_t;
 
-// Modulus p = 2^64 - 59
-static constexpr uint64_t P = UINT64_MAX - 58;
+// Generate one random 64-bit prime for this program execution.
+// The modulus is fixed for the lifetime of the process so that
+// every hash computed in this run uses the same prime.
+uint64_t generateRandomPrime64()
+{
+    BIGNUM* prime = BN_new();
+    if (prime == nullptr)
+        throw std::runtime_error("Failed to allocate BIGNUM for prime generation");
+
+    const int generated = BN_generate_prime_ex(
+        prime,
+        64,
+        0,
+        nullptr,
+        nullptr,
+        nullptr
+    );
+
+    if (generated != 1) {
+        BN_free(prime);
+        throw std::runtime_error("Failed to generate a random 64-bit prime");
+    }
+
+    unsigned char bytes[8];
+    if (BN_bn2binpad(prime, bytes, sizeof(bytes)) != sizeof(bytes)) {
+        BN_free(prime);
+        throw std::runtime_error("Failed to convert generated prime to 64 bits");
+    }
+
+    BN_free(prime);
+
+    uint64_t value = 0;
+    for (unsigned char byte : bytes)
+        value = (value << 8) | byte;
+
+    return value;
+}
+
+// One random 64-bit prime is chosen when the program starts.
+// Keep it fixed for all hashes in this process.
+static const uint64_t P = generateRandomPrime64();
+
+// Expose the modulus so callers can save it alongside hash outputs.
+uint64_t getCayleyHashModulus()
+{
+    return P;
+}
 
 
 // Matrix representation
@@ -15,58 +63,36 @@ struct Matrix {
     uint64_t a, b, c, d;
 };
 
-// Fast modular reduction
+// Reduce a 128-bit integer modulo the randomly generated prime.
 inline uint64_t reduce(u128 x)
 {
-    uint64_t low =
-        static_cast<uint64_t>(x);
+    return static_cast<uint64_t>(x % P);
+}
 
-    uint64_t high =
-        static_cast<uint64_t>(x >> 64);
-
-    // Fold the upper 64 bits into the lower portion.
-    u128 r =
-        static_cast<u128>(low) +
-        static_cast<u128>(high) * 59;
-
-    uint64_t r_low =
-        static_cast<uint64_t>(r);
-
-    uint64_t r_high =
-        static_cast<uint64_t>(r >> 64);
-
-    // A second fold handles any bits produced above
-    // the lower 64 bits.
-    u128 r2 =
-        static_cast<u128>(r_low) +
-        static_cast<u128>(r_high) * 59;
-
-    uint64_t result =
-        static_cast<uint64_t>(r2);
-
-    // Bring the result into the canonical range [0, P).
-    if (result >= P)
-        result -= P;
-
-    return result;
+// Add two already-reduced values without overflowing 64 bits.
+inline uint64_t addMod(uint64_t x, uint64_t y)
+{
+    return reduce(static_cast<u128>(x) + y);
 }
 
 // Matrix transformation A
 inline void mulA(Matrix& H)
 {
     const uint64_t a = H.a;
+    const uint64_t b = H.b;
     const uint64_t c = H.c;
+    const uint64_t d = H.d;
 
     H.b =
         reduce(
             static_cast<u128>(a) * 2 +
-            H.b
+            b
         );
 
     H.d =
         reduce(
             static_cast<u128>(c) * 2 +
-            H.d
+            d
         );
 }
 
@@ -78,29 +104,8 @@ inline void mulB(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.a =
-        reduce(
-            static_cast<u128>(a) +
-            static_cast<u128>(b) * 2
-        );
-
-    H.b =
-        reduce(
-            static_cast<u128>(a) +
-            b
-        );
-
-    H.c =
-        reduce(
-            static_cast<u128>(c) +
-            static_cast<u128>(d) * 2
-        );
-
-    H.d =
-        reduce(
-            static_cast<u128>(c) +
-            d
-        );
+    H.a = reduce(static_cast<u128>(a) + static_cast<u128>(b) * 2);
+    H.c = reduce(static_cast<u128>(c) + static_cast<u128>(d) * 2);
 }
 
 // Matrix transformation C
@@ -219,21 +224,19 @@ inline uint8_t processBitState(
     );
 
     if (bit == lastBit) {
-
-        // A streak of three or more is represented by 3.
+        // Keep the streak capped at three.
         if (streak < 3)
             ++streak;
-
     }
     else {
-
         // A different bit starts a new streak.
         streak = 1;
     }
 
     lastBit = bit;
 
-    // Three consecutive equal bits activate cookie mode.
+    // Three consecutive ones activate cookie mode for later bits.
+    // Three consecutive zeros turn cookie mode off.
     if (streak >= 3)
         cookieMode = bit;
 
@@ -247,8 +250,10 @@ inline uint8_t processBitState(
 // ============================================================
 // Process one input bit.
 //
-// The cookie state determines whether transformation A, B,
-// or C is applied to the current matrix.
+// The current state selects the matrix transformation first.
+// The state is updated only after that transformation is applied,
+// so the third consecutive one still uses transformation B;
+// cookie mode can affect subsequent bits.
 // ============================================================
 
 inline void processBit(
@@ -257,12 +262,6 @@ inline void processBit(
     uint8_t bit
 )
 {
-    state =
-        processBitState(
-            state,
-            bit
-        );
-
     uint8_t lastBit;
     uint8_t streak;
     uint8_t cookieMode;
@@ -275,22 +274,20 @@ inline void processBit(
     );
 
     if (!bit) {
-
         // Zero bits apply transformation A.
         mulA(H);
-
     }
     else if (cookieMode) {
-
         // One bits in cookie mode apply transformation C.
         mulC(H);
-
     }
     else {
-
         // One bits outside cookie mode apply transformation B.
         mulB(H);
     }
+
+    // Update the state after the matrix transformation.
+    state = processBitState(state, bit);
 }
 
 // ============================================================
@@ -316,7 +313,7 @@ struct Transition {
 //
 //     H' = H * T
 //
-// Matrix multiplication is performed modulo P.
+// Matrix multiplication is performed modulo the randomly generated prime P.
 // ============================================================
 
 inline void applyTransition(
@@ -336,29 +333,27 @@ inline void applyTransition(
 
     Matrix result;
 
-    result.a =
-        reduce(
-            static_cast<u128>(a) * ta +
-            static_cast<u128>(b) * tc
-        );
+    // Reduce each product separately so adding two 128-bit products
+    // cannot overflow the 128-bit intermediate type.
+    result.a = addMod(
+        reduce(static_cast<u128>(a) * ta),
+        reduce(static_cast<u128>(b) * tc)
+    );
 
-    result.b =
-        reduce(
-            static_cast<u128>(a) * tb +
-            static_cast<u128>(b) * td
-        );
+    result.b = addMod(
+        reduce(static_cast<u128>(a) * tb),
+        reduce(static_cast<u128>(b) * td)
+    );
 
-    result.c =
-        reduce(
-            static_cast<u128>(c) * ta +
-            static_cast<u128>(d) * tc
-        );
+    result.c = addMod(
+        reduce(static_cast<u128>(c) * ta),
+        reduce(static_cast<u128>(d) * tc)
+    );
 
-    result.d =
-        reduce(
-            static_cast<u128>(c) * tb +
-            static_cast<u128>(d) * td
-        );
+    result.d = addMod(
+        reduce(static_cast<u128>(c) * tb),
+        reduce(static_cast<u128>(d) * td)
+    );
 
     H = result;
 }
@@ -448,7 +443,7 @@ const TransitionTable& getTransitionTable()
     return table;
 }
 
-// Convert the final 2x2 matrix into a 32-byte hash.
+// Convert the final 2x2 matrix into a 32-byte output.
 inline void matrixToBytes(
     const Matrix& m,
     uint8_t* out
