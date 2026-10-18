@@ -83,17 +83,8 @@ inline void mulA(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.b =
-        reduce(
-            static_cast<u128>(a) * 2 +
-            b
-        );
-
-    H.d =
-        reduce(
-            static_cast<u128>(c) * 2 +
-            d
-        );
+    H.b = reduce(static_cast<u128>(a) * 2 + b);
+    H.d = reduce(static_cast<u128>(c) * 2 + d);
 }
 
 // Matrix transformation B
@@ -104,8 +95,8 @@ inline void mulB(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.a = reduce(static_cast<u128>(a) + static_cast<u128>(b) * 2);
-    H.c = reduce(static_cast<u128>(c) + static_cast<u128>(d) * 2);
+    H.a = reduce(static_cast<u128>(a) + b * 2);
+    H.c = reduce(static_cast<u128>(c) + d * 2);
 }
 
 // Matrix transformation C
@@ -116,29 +107,10 @@ inline void mulC(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.a =
-        reduce(
-            static_cast<u128>(a) * 2 +
-            b
-        );
-
-    H.b =
-        reduce(
-            static_cast<u128>(a) +
-            b
-        );
-
-    H.c =
-        reduce(
-            static_cast<u128>(c) * 2 +
-            d
-        );
-
-    H.d =
-        reduce(
-            static_cast<u128>(c) +
-            d
-        );
+    H.a = reduce(static_cast<u128>(a) * 2 + b);
+    H.b = reduce(static_cast<u128>(a) + b);
+    H.c = reduce(static_cast<u128>(c) * 2 + d);
+    H.d = reduce(static_cast<u128>(c) + d);
 }
 
 // ============================================================
