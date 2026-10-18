@@ -1,5 +1,5 @@
 #include <cstdint>
-#include <cayleyhash.h>
+#include "cayleyhash.h"
 #include <cstddef>
 #include <boost/multiprecision/cpp_int.hpp>
 #include <openssl/bn.h>
