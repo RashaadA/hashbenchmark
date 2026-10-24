@@ -1,8 +1,8 @@
-#ifndef CAYLEYHASH_H
-#define CAYLEYHASH_H
+#pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <cstddef>
+#include <string>
 
 void cayleyHash(
     const uint8_t* data,
@@ -10,4 +10,16 @@ void cayleyHash(
     uint8_t* out
 );
 
-#endif
+void initializeCayleyHashModulus();
+
+uint64_t getCayleyHashModulus();
+
+void setCayleyHashModulus(uint64_t modulus);
+
+void saveCayleyHashModulus(
+    const std::string& filename
+);
+
+uint64_t loadCayleyHashModulus(
+    const std::string& filename
+);
