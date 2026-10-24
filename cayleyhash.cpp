@@ -1,22 +1,35 @@
 #include <cstdint>
 #include "cayleyhash.h"
 #include <cstddef>
+
 #include <boost/multiprecision/cpp_int.hpp>
 #include <openssl/bn.h>
 
 #include <array>
+#include <iostream>
+#include <fstream>
+#include <string>
 #include <stdexcept>
+#include <limits>
 
 using u128 = boost::multiprecision::uint128_t;
 
-// Generate one random 64-bit prime for this program execution.
-// The modulus is fixed for the lifetime of the process so that
-// every hash computed in this run uses the same prime.
+// ============================================================
+// Modulus management
+// ============================================================
+
+// The modulus must be initialized before hashing begins.
+static uint64_t P = 0;
+
+// Generate a random 64-bit prime.
 uint64_t generateRandomPrime64()
 {
     BIGNUM* prime = BN_new();
+
     if (prime == nullptr)
-        throw std::runtime_error("Failed to allocate BIGNUM for prime generation");
+        throw std::runtime_error(
+            "Failed to allocate BIGNUM."
+        );
 
     const int generated = BN_generate_prime_ex(
         prime,
@@ -27,55 +40,334 @@ uint64_t generateRandomPrime64()
         nullptr
     );
 
-    if (generated != 1) {
+    if (generated != 1)
+    {
         BN_free(prime);
-        throw std::runtime_error("Failed to generate a random 64-bit prime");
+
+        throw std::runtime_error(
+            "Failed to generate a random prime."
+        );
     }
 
     unsigned char bytes[8];
-    if (BN_bn2binpad(prime, bytes, sizeof(bytes)) != sizeof(bytes)) {
+
+    if (BN_bn2binpad(
+        prime,
+        bytes,
+        sizeof(bytes)
+    ) != sizeof(bytes))
+    {
         BN_free(prime);
-        throw std::runtime_error("Failed to convert generated prime to 64 bits");
+
+        throw std::runtime_error(
+            "Failed to convert the generated prime."
+        );
     }
 
     BN_free(prime);
 
     uint64_t value = 0;
+
     for (unsigned char byte : bytes)
         value = (value << 8) | byte;
 
     return value;
 }
 
-// One random 64-bit prime is chosen when the program starts.
-// Keep it fixed for all hashes in this process.
-static const uint64_t P = generateRandomPrime64();
+// Check whether a decimal string represents a 64-bit prime.
+bool isValidPrime64(const std::string& number)
+{
+    if (number.empty())
+        return false;
 
-// Expose the modulus so callers can save it alongside hash outputs.
+    for (char ch : number)
+    {
+        if (ch < '0' || ch > '9')
+            return false;
+    }
+
+    BIGNUM* candidate = nullptr;
+
+    if (BN_dec2bn(&candidate, number.c_str()) == 0)
+        return false;
+
+    if (BN_is_negative(candidate) ||
+        BN_num_bits(candidate) > 64)
+    {
+        BN_free(candidate);
+        return false;
+    }
+
+    BN_CTX* ctx = BN_CTX_new();
+
+    if (ctx == nullptr)
+    {
+        BN_free(candidate);
+
+        throw std::runtime_error(
+            "Failed to allocate OpenSSL context."
+        );
+    }
+
+    const int result = BN_check_prime(
+        candidate,
+        ctx,
+        nullptr
+    );
+
+    BN_CTX_free(ctx);
+    BN_free(candidate);
+
+    if (result < 0)
+    {
+        throw std::runtime_error(
+            "OpenSSL primality check failed."
+        );
+    }
+
+    return result == 1;
+}
+
+// Convert a validated decimal prime to uint64_t.
+uint64_t parsePrime64(const std::string& number)
+{
+    if (!isValidPrime64(number))
+    {
+        throw std::invalid_argument(
+            "The modulus must be a valid 64-bit prime."
+        );
+    }
+
+    return std::stoull(number);
+}
+
+// Set the modulus used by the hash.
+void setCayleyHashModulus(uint64_t modulus)
+{
+    if (!isValidPrime64(std::to_string(modulus)))
+    {
+        throw std::invalid_argument(
+            "The modulus must be a valid 64-bit prime."
+        );
+    }
+
+    P = modulus;
+}
+
+// Return the active modulus.
 uint64_t getCayleyHashModulus()
 {
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "Initialize the modulus before hashing."
+        );
+    }
+
     return P;
 }
 
+// Save the active modulus to a file.
+void saveCayleyHashModulus(
+    const std::string& filename
+)
+{
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "The modulus has not been initialized."
+        );
+    }
 
-// Matrix representation
-struct Matrix {
+    std::ofstream file(filename);
+
+    if (!file)
+    {
+        throw std::runtime_error(
+            "Could not open the modulus file for writing."
+        );
+    }
+
+    file << P << '\n';
+
+    if (!file)
+    {
+        throw std::runtime_error(
+            "Failed to save the modulus."
+        );
+    }
+}
+
+// Load a previously saved modulus.
+uint64_t loadCayleyHashModulus(
+    const std::string& filename
+)
+{
+    std::ifstream file(filename);
+
+    if (!file)
+    {
+        throw std::runtime_error(
+            "Could not open the modulus file."
+        );
+    }
+
+    std::string number;
+    std::string extra;
+
+    if (!(file >> number))
+    {
+        throw std::runtime_error(
+            "The modulus file is empty."
+        );
+    }
+
+    if (file >> extra)
+    {
+        throw std::runtime_error(
+            "The modulus file contains unexpected data."
+        );
+    }
+
+    return parsePrime64(number);
+}
+
+// Initialize the modulus using a menu.
+void initializeCayleyHashModulus()
+{
+    int choice;
+
+    std::cout
+        << "\nCayley Hash Modulus Selection\n"
+        << "1. Generate a random 64-bit prime\n"
+        << "2. Enter a prime manually\n"
+        << "3. Load a saved prime\n"
+        << "Select an option: ";
+
+    if (!(std::cin >> choice))
+    {
+        std::cin.clear();
+
+        std::cin.ignore(
+            std::numeric_limits<std::streamsize>::max(),
+            '\n'
+        );
+
+        throw std::runtime_error(
+            "Invalid menu selection."
+        );
+    }
+
+    switch (choice)
+    {
+    case 1:
+    {
+        P = generateRandomPrime64();
+
+        std::cout
+            << "Generated prime: "
+            << P << '\n';
+
+        break;
+    }
+
+    case 2:
+    {
+        std::string input;
+
+        std::cout
+            << "Enter a 64-bit prime: ";
+
+        std::cin >> input;
+
+        P = parsePrime64(input);
+
+        std::cout
+            << "Using prime: "
+            << P << '\n';
+
+        break;
+    }
+
+    case 3:
+    {
+        std::string filename;
+
+        std::cout
+            << "Enter the modulus filename: ";
+
+        std::cin >> filename;
+
+        P = loadCayleyHashModulus(filename);
+
+        std::cout
+            << "Loaded prime: "
+            << P << '\n';
+
+        break;
+    }
+
+    default:
+    {
+        throw std::invalid_argument(
+            "Invalid menu option."
+        );
+    }
+    }
+
+    char saveChoice;
+
+    std::cout
+        << "Save this prime for future runs? (y/n): ";
+
+    std::cin >> saveChoice;
+
+    if (saveChoice == 'y' || saveChoice == 'Y')
+    {
+        std::string filename;
+
+        std::cout
+            << "Enter the filename: ";
+
+        std::cin >> filename;
+
+        saveCayleyHashModulus(filename);
+
+        std::cout
+            << "Prime saved to "
+            << filename << '\n';
+    }
+}
+
+// ============================================================
+// Matrix representation and modular arithmetic
+// ============================================================
+
+struct Matrix
+{
     uint64_t a, b, c, d;
 };
 
-// Reduce a 128-bit integer modulo the randomly generated prime.
+// Reduce a 128-bit integer modulo P.
 inline uint64_t reduce(u128 x)
 {
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "Initialize the modulus before hashing."
+        );
+    }
+
     return static_cast<uint64_t>(x % P);
 }
 
-// Add two already-reduced values without overflowing 64 bits.
+// Add two reduced values modulo P.
 inline uint64_t addMod(uint64_t x, uint64_t y)
 {
     return reduce(static_cast<u128>(x) + y);
 }
 
-// Matrix transformation A
+// Matrix transformation A.
 inline void mulA(Matrix& H)
 {
     const uint64_t a = H.a;
@@ -83,11 +375,16 @@ inline void mulA(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.b = reduce(static_cast<u128>(a) * 2 + b);
-    H.d = reduce(static_cast<u128>(c) * 2 + d);
+    H.b = reduce(
+        static_cast<u128>(a) * 2 + b
+    );
+
+    H.d = reduce(
+        static_cast<u128>(c) * 2 + d
+    );
 }
 
-// Matrix transformation B
+// Matrix transformation B.
 inline void mulB(Matrix& H)
 {
     const uint64_t a = H.a;
@@ -95,11 +392,18 @@ inline void mulB(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.a = reduce(static_cast<u128>(a) + b * 2);
-    H.c = reduce(static_cast<u128>(c) + d * 2);
+    H.a = reduce(
+        static_cast<u128>(a) +
+        static_cast<u128>(b) * 2
+    );
+
+    H.c = reduce(
+        static_cast<u128>(c) +
+        static_cast<u128>(d) * 2
+    );
 }
 
-// Matrix transformation C
+// Matrix transformation C.
 inline void mulC(Matrix& H)
 {
     const uint64_t a = H.a;
@@ -107,35 +411,25 @@ inline void mulC(Matrix& H)
     const uint64_t c = H.c;
     const uint64_t d = H.d;
 
-    H.a = reduce(static_cast<u128>(a) * 2 + b);
-    H.b = reduce(static_cast<u128>(a) + b);
-    H.c = reduce(static_cast<u128>(c) * 2 + d);
-    H.d = reduce(static_cast<u128>(c) + d);
+    H.a = reduce(
+        static_cast<u128>(a) * 2 + b
+    );
+
+    H.b = reduce(
+        static_cast<u128>(a) + b
+    );
+
+    H.c = reduce(
+        static_cast<u128>(c) * 2 + d
+    );
+
+    H.d = reduce(
+        static_cast<u128>(c) + d
+    );
 }
 
 // ============================================================
-// Hash state encoding
-//
-// The cookie mechanism tracks three pieces of information:
-//
-//     last_bit
-//     streak
-//     cookie_mode
-//
-// The streak only needs four states:
-//
-//     0 = no previous streak
-//     1 = one consecutive bit
-//     2 = two consecutive bits
-//     3 = three or more consecutive bits
-//
-// The state is stored in one byte:
-//
-//     bit 0     = last_bit
-//     bits 1-2  = streak
-//     bit 3     = cookie_mode
-//
-// This gives 16 possible states.
+// Cookie state
 // ============================================================
 
 inline uint8_t makeState(
@@ -151,7 +445,6 @@ inline uint8_t makeState(
         );
 }
 
-// Decode a stored hash state into its individual components.
 inline void decodeState(
     uint8_t state,
     uint8_t& lastBit,
@@ -159,25 +452,10 @@ inline void decodeState(
     uint8_t& cookieMode
 )
 {
-    lastBit =
-        state & 1;
-
-    streak =
-        (state >> 1) & 3;
-
-    cookieMode =
-        (state >> 3) & 1;
+    lastBit = state & 1;
+    streak = (state >> 1) & 3;
+    cookieMode = (state >> 3) & 1;
 }
-
-// ============================================================
-// Update the cookie state for one input bit.
-//
-// A consecutive sequence of equal bits increases the streak.
-// A different bit starts a new streak.
-//
-// Once three consecutive bits have been observed, cookie_mode
-// becomes equal to the current bit.
-// ============================================================
 
 inline uint8_t processBitState(
     uint8_t state,
@@ -195,20 +473,18 @@ inline uint8_t processBitState(
         cookieMode
     );
 
-    if (bit == lastBit) {
-        // Keep the streak capped at three.
+    if (bit == lastBit)
+    {
         if (streak < 3)
             ++streak;
     }
-    else {
-        // A different bit starts a new streak.
+    else
+    {
         streak = 1;
     }
 
     lastBit = bit;
 
-    // Three consecutive ones activate cookie mode for later bits.
-    // Three consecutive zeros turn cookie mode off.
     if (streak >= 3)
         cookieMode = bit;
 
@@ -218,15 +494,6 @@ inline uint8_t processBitState(
         cookieMode
     );
 }
-
-// ============================================================
-// Process one input bit.
-//
-// The current state selects the matrix transformation first.
-// The state is updated only after that transformation is applied,
-// so the third consecutive one still uses transformation B;
-// cookie mode can affect subsequent bits.
-// ============================================================
 
 inline void processBit(
     Matrix& H,
@@ -245,48 +512,31 @@ inline void processBit(
         cookieMode
     );
 
-    if (!bit) {
-        // Zero bits apply transformation A.
+    if (!bit)
+    {
         mulA(H);
     }
-    else if (cookieMode) {
-        // One bits in cookie mode apply transformation C.
+    else if (cookieMode)
+    {
         mulC(H);
     }
-    else {
-        // One bits outside cookie mode apply transformation B.
+    else
+    {
         mulB(H);
     }
 
-    // Update the state after the matrix transformation.
     state = processBitState(state, bit);
 }
 
 // ============================================================
-// A transition contains:
-//
-//     matrix
-//         Combined matrix transformation for one input byte.
-//
-//     nextState
-//         Cookie state after processing that byte.
+// Byte transition table
 // ============================================================
 
-struct Transition {
+struct Transition
+{
     Matrix matrix;
     uint8_t nextState;
 };
-
-// ============================================================
-// Apply a precomputed matrix transformation.
-//
-// If the current hash matrix is H and the transition matrix
-// is T, the resulting matrix is:
-//
-//     H' = H * T
-//
-// Matrix multiplication is performed modulo the randomly generated prime P.
-// ============================================================
 
 inline void applyTransition(
     Matrix& H,
@@ -305,8 +555,6 @@ inline void applyTransition(
 
     Matrix result;
 
-    // Reduce each product separately so adding two 128-bit products
-    // cannot overflow the 128-bit intermediate type.
     result.a = addMod(
         reduce(static_cast<u128>(a) * ta),
         reduce(static_cast<u128>(b) * tc)
@@ -330,30 +578,22 @@ inline void applyTransition(
     H = result;
 }
 
-// ============================================================
-// Transition table
-//
-// There are 16 possible cookie states and 256 possible byte
-// values:
-//
-//     16 * 256 = 4096 transitions
-//
-// Each transition stores the combined effect of processing
-// all eight bits of a byte and the resulting cookie state.
-//
-// The table is constructed once and then reused for every
-// hash operation.
-// ============================================================
-
 using TransitionTable =
 std::array<
     std::array<Transition, 256>,
     16
 >;
 
-// Build the byte transition table.
+// Build the transition table using the currently selected P.
 TransitionTable buildTransitionTable()
 {
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "Initialize the modulus before building the table."
+        );
+    }
+
     TransitionTable table{};
 
     for (int startingState = 0;
@@ -364,29 +604,22 @@ TransitionTable buildTransitionTable()
             byteValue < 256;
             ++byteValue)
         {
-            // Identity matrix.
             Matrix transformation = {
                 1, 0,
                 0, 1
             };
 
             uint8_t state =
-                static_cast<uint8_t>(
-                    startingState
-                    );
+                static_cast<uint8_t>(startingState);
 
             uint8_t byte =
-                static_cast<uint8_t>(
-                    byteValue
-                    );
+                static_cast<uint8_t>(byteValue);
 
-            // Process the byte from the most significant
-            // bit to the least significant bit.
             for (int bitPosition = 7;
                 bitPosition >= 0;
                 --bitPosition)
             {
-                uint8_t bit =
+                const uint8_t bit =
                     (byte >> bitPosition) & 1;
 
                 processBit(
@@ -406,16 +639,26 @@ TransitionTable buildTransitionTable()
     return table;
 }
 
-// Return the transition table.
+// Build the table once, after modulus initialization.
 const TransitionTable& getTransitionTable()
 {
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "Initialize the modulus before hashing."
+        );
+    }
+
     static const TransitionTable table =
         buildTransitionTable();
 
     return table;
 }
 
-// Convert the final 2x2 matrix into a 32-byte output.
+// ============================================================
+// Hash output encoding
+// ============================================================
+
 inline void matrixToBytes(
     const Matrix& m,
     uint8_t* out
@@ -428,9 +671,9 @@ inline void matrixToBytes(
         m.d
     };
 
-    for (int i = 0; i < 4; ++i) {
-
-        uint64_t v = vals[i];
+    for (int i = 0; i < 4; ++i)
+    {
+        const uint64_t v = vals[i];
 
         out[i * 8 + 0] =
             static_cast<uint8_t>(v >> 56);
@@ -458,16 +701,9 @@ inline void matrixToBytes(
     }
 }
 
-// Cayley hash, starting with the identity matrix.
-//
-// Each input byte is processed using the precomputed transition
-// table. The table determines both the matrix transformation
-// and the new cookie state.
-//
-// Three zero bits are then processed as padding, corresponding
-// to three applications of transformation A.
-//
-// The final matrix is converted to the 32-byte hash output.
+// ============================================================
+// Cayley hash
+// ============================================================
 
 void cayleyHash(
     const uint8_t* data,
@@ -475,29 +711,27 @@ void cayleyHash(
     uint8_t* out
 )
 {
-    // Initial hash matrix.
+    if (P == 0)
+    {
+        throw std::runtime_error(
+            "Initialize the modulus before hashing."
+        );
+    }
+
     Matrix H = {
         1, 0,
         0, 1
     };
 
-    // Initial cookie state:
-    //
-    // last_bit   = 0
-    // streak     = 0
-    // cookie_mode = false
-    uint8_t state =
-        makeState(
-            0,
-            0,
-            0
-        );
+    uint8_t state = makeState(
+        0,
+        0,
+        0
+    );
 
-    // Obtain the precomputed byte transition table.
     const TransitionTable& table =
         getTransitionTable();
 
-    // Process each input byte.
     for (size_t i = 0; i < len; ++i)
     {
         const uint8_t byte = data[i];
@@ -505,26 +739,18 @@ void cayleyHash(
         const Transition& transition =
             table[state][byte];
 
-        // Apply the combined matrix transformation
-        // corresponding to all eight bits of this byte.
         applyTransition(
             H,
             transition.matrix
         );
 
-        // Update the cookie state.
-        state =
-            transition.nextState;
+        state = transition.nextState;
     }
 
-    // Apply the three zero-bit padding operations.
+    // Apply three zero-bit padding operations.
     mulA(H);
     mulA(H);
     mulA(H);
 
-    // Convert the final matrix into the 32-byte hash.
-    matrixToBytes(
-        H,
-        out
-    );
+    matrixToBytes(H, out);
 }
