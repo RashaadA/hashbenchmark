@@ -1,0 +1,3 @@
+C:\Users\rands\source\repos\hashbenchmark\x64\Debug\blake3.dll
+C:\Users\rands\source\repos\hashbenchmark\x64\Debug\libcrypto-3-x64.dll
+C:\Users\rands\source\repos\avalanche_diffusion\x64\Debug\avalanch.9656FF43.Up2Date
