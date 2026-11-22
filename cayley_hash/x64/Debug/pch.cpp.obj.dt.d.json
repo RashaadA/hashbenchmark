@@ -1,0 +1,13 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\rands\\source\\repos\\cayley_hash\\pch.cpp",
+        "ProvidedModule": "",
+        "Includes": [
+            "c:\\users\\rands\\source\\repos\\cayley_hash\\pch.h",
+            "c:\\users\\rands\\source\\repos\\cayley_hash\\framework.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

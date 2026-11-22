@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "hashbenchmark\\x64\\Debug\\Source.obj",
+            "outputs": [
+                "hashbenchmark\\x64\\Debug\\Source.cpp.obj.dt.module.json",
+                "hashbenchmark\\x64\\Debug\\Source.cpp.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

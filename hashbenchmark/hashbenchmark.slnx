@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Solution Items/" />
+  <Project Path="../avalanche_diffusion/avalanche_diffusion.vcxproj" Id="4f22fbb6-2fad-4f7e-aa4d-b43e4e778717" />
+  <Project Path="../cayley_hash/cayley_hash.vcxproj" Id="40c377e4-87f9-49a4-9594-b85316d43fc2" />
+  <Project Path="hashbenchmark.vcxproj" Id="3d9bc753-72d3-41a2-bd33-280923c0590e" />
+</Solution>

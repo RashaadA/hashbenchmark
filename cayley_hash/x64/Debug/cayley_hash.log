@@ -1,0 +1,6 @@
+﻿  blake3.c
+  blake3_dispatch.c
+  blake3_portable.c
+  Generating Code...
+  cayleyhash.cpp
+  cayley_hash.vcxproj -> C:\Users\rands\source\repos\hashbenchmark\x64\Debug\cayley_hash.lib

@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "hashbenchmark\\x64\\Debug\\avalanche_diffusion.obj",
+            "outputs": [
+                "hashbenchmark\\x64\\Debug\\avalanche_diffusion.cpp.obj.dt.module.json",
+                "hashbenchmark\\x64\\Debug\\avalanche_diffusion.cpp.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

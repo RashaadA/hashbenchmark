@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "hashbenchmark\\x64\\Debug\\cayleyhash.obj",
+            "outputs": [
+                "hashbenchmark\\x64\\Debug\\cayleyhash.cpp.obj.dt.module.json",
+                "hashbenchmark\\x64\\Debug\\cayleyhash.cpp.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}
